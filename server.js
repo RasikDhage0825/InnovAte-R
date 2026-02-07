@@ -2,22 +2,28 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
-
-const app = express();
-app.use(express.json());
-app.use(cors());
 const path = require('path');
 
-// This tells Express to serve your index.html file when someone visits the home page
+const app = express();
+const port = process.env.PORT || 3000;
+
+// 1. Middleware: Allow JSON and allow Vercel to talk to this server
+app.use(express.json());
+app.use(cors({ origin: '*' })); // ⬅️ CRITICAL FIX
+
+// 2. Serve Frontend (Optional: keeps the Render URL working too)
+app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-
+// 3. AI Route (The Brain)
 app.post('/gemini', async (req, res) => {
     try {
         const userMessage = req.body.message;
+        const GROQ_API_KEY = process.env.GROQ_API_KEY;
+
+        if (!GROQ_API_KEY) return res.status(500).json({ reply: "Server Error: Missing API Key" });
 
         const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
@@ -26,40 +32,29 @@ app.post('/gemini', async (req, res) => {
                 "Authorization": `Bearer ${GROQ_API_KEY}`
             },
             body: JSON.stringify({
-                // 👇 UPDATED MODEL NAME (The old one was deleted by Groq)
-                model: "llama-3.1-8b-instant", 
+                model: "llama-3.1-8b-instant",
                 messages: [
-                    { 
-                        role: "system", 
-                        content: "You are a helpful and friendly electronics tutor." 
-                    },
-                    { 
-                        role: "user", 
-                        content: userMessage 
-                    }
+                    { role: "system", content: "You are a helpful electronics tutor. Keep answers short." },
+                    { role: "user", content: userMessage }
                 ]
             })
         });
 
         const data = await response.json();
-
-        // Error handling
+        
         if (data.error) {
             console.error("Groq Error:", data.error);
-            return res.json({ reply: "Error from Groq: " + data.error.message });
+            return res.json({ reply: "Error from AI provider." });
         }
 
-        const botReply = data.choices[0].message.content;
-        
-        res.json({ reply: botReply });
+        res.json({ reply: data.choices[0].message.content });
 
     } catch (error) {
         console.error("Server Error:", error);
-        res.status(500).json({ reply: "Error connecting to server." });
+        res.status(500).json({ reply: "Internal Server Error" });
     }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
 });
